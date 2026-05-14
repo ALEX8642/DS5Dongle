@@ -441,6 +441,8 @@ static void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t 
                     const auto mtu = l2cap_get_remote_mtu_for_local_cid(hid_interrupt_cid);
                     printf("[L2CAP] Remote Interrupt MTU: %d\n",mtu);
 
+                    gap_connectable_control(false);
+                    gap_discoverable_control(false);
                     // tud_connect();
                 } else {
                     printf("[L2CAP] Unknown Channel psm: 0x%02X", psm);
