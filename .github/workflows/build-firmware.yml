@@ -38,6 +38,11 @@ on:
         required: false
         type: boolean
         default: false
+      waveshare:
+        description: Also build the Waveshare RP2350B-Plus-W UF2 (-DWAVESHARE_RP2350B_PLUS_W_BUILD=ON)
+        required: false
+        type: boolean
+        default: false
       no_batt_led_check:
         description: Also compile-check the no-batt-led config (-DENABLE_BATT_LED=OFF)
         required: false
@@ -184,6 +189,19 @@ jobs:
           cmake --build build/picow --target ds5-bridge
           cp build/picow/ds5-bridge.uf2 "artifacts/ds5-bridge-picow${{ inputs.asset_suffix }}.uf2"
 
+      - name: Build Waveshare RP2350B-Plus-W firmware
+        if: inputs.waveshare
+        run: |
+          VERSION_ARG=()
+          [ -n "${FW_VER:-}" ] && VERSION_ARG=(-DVERSION="$FW_VER")
+          cmake -S . -B build/waveshare -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPICO_SDK_PATH="$PICO_SDK_PATH" \
+            -DWAVESHARE_RP2350B_PLUS_W_BUILD=ON \
+            "${VERSION_ARG[@]}"
+          cmake --build build/waveshare --target ds5-bridge
+          cp build/waveshare/ds5-bridge.uf2 "artifacts/ds5-bridge-waveshare${{ inputs.asset_suffix }}.uf2"
+
       - name: Build USB-Wake firmware
         if: inputs.picow
         run: |
@@ -241,6 +259,14 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           path: artifacts/ds5-bridge-picow${{ inputs.asset_suffix }}.uf2
+          archive: false
+          if-no-files-found: error
+
+      - name: Upload Waveshare UF2 artifact
+        if: inputs.waveshare
+        uses: actions/upload-artifact@v7
+        with:
+          path: artifacts/ds5-bridge-waveshare${{ inputs.asset_suffix }}.uf2
           archive: false
           if-no-files-found: error
 
