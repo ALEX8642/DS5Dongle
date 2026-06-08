@@ -17,6 +17,7 @@
 #include "classic/sdp_server.h"
 #include "config.h"
 #include "state_mgr.h"
+#include "wake.h"
 #include "pico/util/queue.h"
 #if ENABLE_BATT_LED
 #include "battery_led.h"
@@ -331,7 +332,12 @@ static void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         }
 
         case HCI_EVENT_DISCONNECTION_COMPLETE: {
-#if !ENABLE_SERIAL
+#if !ENABLE_SERIAL && !defined(ENABLE_WAKE_HID)
+            // Without ENABLE_WAKE_HID we hide the USB device whenever no
+            // controller is paired (upstream behavior). With wake enabled
+            // we must stay on the bus across controller power-cycles, so
+            // tud_suspend_cb can later fire and tud_remote_wakeup() can
+            // signal a wake when the controller is turned back on.
             tud_disconnect();
 #endif
             gap_connectable_control(1);
@@ -344,6 +350,7 @@ static void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             hid_control_cid = 0;
             hid_interrupt_cid = 0;
             feature_data.clear();
+            while (queue_try_remove(&send_fifo, NULL)) {}
             cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, false);
 #if ENABLE_BATT_LED
             battery_led_on_disconnect();
@@ -453,6 +460,7 @@ static void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t 
 
                     init_feature();
                     // 初始化手柄状态
+                    state_init();
                     uint8_t report32[142]{};
                     report32[0] = 0x32;
                     report32[1] = 0x10; // reportSeqCounter
@@ -463,6 +471,8 @@ static void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t 
 
                     const auto mtu = l2cap_get_remote_mtu_for_local_cid(hid_interrupt_cid);
                     printf("[L2CAP] Remote Interrupt MTU: %d\n",mtu);
+
+                    wake_on_bt_connect();
 
                     gap_connectable_control(false);
                     gap_discoverable_control(false);
@@ -585,6 +595,12 @@ void set_feature_data(uint8_t reportId, uint8_t *data, uint16_t len) {
         printf_hexdump(get_feature, len + 2);
 #endif
     }
+}
+
+void bt_power_off_controller() {
+    uint8_t bluetooth_control[47]{};
+    bluetooth_control[0] = 0x02; // DualSense Bluetooth control: 1=on, 2=off.
+    set_feature_data(0x08, bluetooth_control, sizeof(bluetooth_control));
 }
 
 void init_feature() {
