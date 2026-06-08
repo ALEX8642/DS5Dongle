@@ -2,6 +2,12 @@
 // Created by awalol on 2026/3/5.
 //
 
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
 #include "audio.h"
 #include "bt.h"
 #include "resample.h"
@@ -62,12 +68,12 @@ void audio_loop() {
     WDL_ResampleSample *in_buf;
     int nframes = resampler.ResamplePrepare(frames, OUTPUT_CHANNELS, &in_buf);
 
-    const float audio_gain = mute[0] ? 0.0f : powf(10.0f, get_config().speaker_volume / 20.0f);
+    // const float audio_gain = mute[0] ? 0.0f : powf(10.0f, get_config().speaker_volume / 20.0f);
     const float haptics_gain = get_config().haptics_gain;
     for (int i = 0; i < nframes; i++) {
  #if !DISABLE_SPEAKER_PROC       
-        audio_buf[audio_buf_pos++] = raw[i * INPUT_CHANNELS] / 32768.0f * audio_gain;
-        audio_buf[audio_buf_pos++] = raw[i * INPUT_CHANNELS + 1] / 32768.0f * audio_gain;
+        audio_buf[audio_buf_pos++] = raw[i * INPUT_CHANNELS] / 32768.0f;
+        audio_buf[audio_buf_pos++] = raw[i * INPUT_CHANNELS + 1] / 32768.0f;
         if (audio_buf_pos == 512 * 2) {
             static audio_raw_element element{};
             memcpy(element.data, audio_buf, 512 * 2 * 4);
@@ -147,7 +153,7 @@ void audio_init() {
     resampler.SetRates(48000, 3000);
     resampler.SetFeedMode(true);
     resampler.Prealloc(2, 24, 6);
- #if !DISABLE_SPEAKER_PROC
+#if !DISABLE_SPEAKER_PROC
     queue_init(&audio_fifo, sizeof(audio_raw_element), 2);
     critical_section_init(&opus_cs);
     multicore_launch_core1_with_stack(core1_entry, audio_core1_stack, sizeof(audio_core1_stack));
