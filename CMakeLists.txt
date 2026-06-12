@@ -229,6 +229,56 @@ add_custom_command(TARGET ds5-bridge PRE_LINK
     VERBATIM
 )
 
+# Phase B.3: Tier-2 relocation -- the run-loop TX pumps and per-transfer submit
+# paths. Same PRE_LINK objcopy mechanism as B.2. These fire every btstack/USB
+# run-loop iteration (outbound ACL/L2CAP, USB task) or per audio transfer rather
+# than strictly per received byte, so they are a notch less hot than Tier 1 but
+# still on the audio path. state_update is intentionally NOT moved: it runs on
+# the host->controller HID-OUT (rumble/LED) path, not the audio frame path, so
+# it stays in flash to preserve RAM headroom.
+add_custom_command(TARGET ds5-bridge PRE_LINK
+    # btstack: HCI TX/state pump + outbound ACL (speaker/haptics) fragmentation
+    COMMAND ${CMAKE_OBJCOPY}
+        --rename-section .text.hci_run=.time_critical.hci_run
+        --rename-section .text.hci_send_acl_packet_fragments=.time_critical.hci_send_acl_packet_fragments
+        --rename-section .text.hci_send_acl_packet_buffer=.time_critical.hci_send_acl_packet_buffer
+        ${_b2_objdir}/lib/btstack/src/hci.c.o
+    # btstack: L2CAP TX pump + outbound send paths
+    COMMAND ${CMAKE_OBJCOPY}
+        --rename-section .text.l2cap_run=.time_critical.l2cap_run
+        --rename-section .text.l2cap_send=.time_critical.l2cap_send
+        --rename-section .text.l2cap_send_prepared=.time_critical.l2cap_send_prepared
+        --rename-section .text.l2cap_notify_channel_can_send=.time_critical.l2cap_notify_channel_can_send
+        ${_b2_objdir}/lib/btstack/src/l2cap.c.o
+    # cyw43: backplane mem/reg accessors used inside the SDPCM/ioctl packet path
+    COMMAND ${CMAKE_OBJCOPY}
+        --rename-section .text.cyw43_ll_write_backplane_mem=.time_critical.cyw43_ll_write_backplane_mem
+        --rename-section .text.cyw43_ll_read_backplane_mem=.time_critical.cyw43_ll_read_backplane_mem
+        --rename-section .text.cyw43_write_backplane=.time_critical.cyw43_write_backplane
+        --rename-section .text.cyw43_read_backplane.constprop.0=.time_critical.cyw43_read_backplane
+        ${_b2_objdir}/lib/cyw43-driver/src/cyw43_ll.c.o
+    # tinyusb: USB device task pump + endpoint transfer submit
+    COMMAND ${CMAKE_OBJCOPY}
+        --rename-section .text.tud_task_ext=.time_critical.tud_task_ext
+        --rename-section .text.usbd_edpt_xfer=.time_critical.usbd_edpt_xfer
+        --rename-section .text.usbd_edpt_xfer_fifo=.time_critical.usbd_edpt_xfer_fifo
+        ${_b2_objdir}/lib/tinyusb/src/device/usbd.c.o
+    # tinyusb: RP2350 DCD per-transfer submit + iso endpoint activation
+    COMMAND ${CMAKE_OBJCOPY}
+        --rename-section .text.dcd_edpt_xfer=.time_critical.dcd_edpt_xfer
+        --rename-section .text.dcd_edpt_iso_activate=.time_critical.dcd_edpt_iso_activate
+        ${_b2_objdir}/lib/tinyusb/src/portable/raspberrypi/rp2040/dcd_rp2040.c.o
+    # tinyusb: audio class data path (read/write, TX packet sizing, xfer ISR)
+    COMMAND ${CMAKE_OBJCOPY}
+        --rename-section .text.tud_audio_n_read=.time_critical.tud_audio_n_read
+        --rename-section .text.tud_audio_n_write=.time_critical.tud_audio_n_write
+        --rename-section .text.audiod_calc_tx_packet_sz.isra.0=.time_critical.audiod_calc_tx_packet_sz
+        --rename-section .text.audiod_xfer_isr=.time_critical.audiod_xfer_isr
+        ${_b2_objdir}/lib/tinyusb/src/class/audio/audio_device.c.o
+    COMMENT "Phase B.3: relocating Tier-2 BT/USB pump + transfer paths to .time_critical.* (RAM)"
+    VERBATIM
+)
+
 target_compile_options(ds5-bridge PRIVATE -fsigned-char)
 target_compile_definitions(wdl_resampler PRIVATE
         WDL_RESAMPLE_TYPE=float
